@@ -41,6 +41,9 @@
             backdrop-filter: blur(5px);
         }
     </style>
+    <script>var exports = {};</script>
+    <script src="./lib/gputext.min.js"></script>
+    <script src="./lib/gputext-webgl.min.js"></script>
 </head>
 <body>
     <div class="stream-views">
@@ -165,7 +168,7 @@
             bindBufferPositionAttrib(gl, this.texCoordBuffer, this.texCoordAttrib)
 
             this.videoTextureAttrib = gl.getUniformLocation(this.program, "u_videoTexture")
-            this.videoTexture = this.videoTexture
+            gl.uniform1i(this.videoTextureAttrib, this.#videoTexture)
         }
     }
 
@@ -183,7 +186,8 @@
                 uniform vec2 u_implosionCenter;
                 uniform float u_implosionStrength;
 
-                void main() {
+                void main()
+                {
                     // Calculate the vector from the current fragment to the implosion center
                     vec2 offset = v_texCoord - u_implosionCenter;
                     
@@ -197,7 +201,7 @@
                 }
             `
             this.#implosionCenter = { x: 0.5, y: 0.5 }
-            this.#implosionStrength = 1.0
+            this.#implosionStrength = 1
         }
 
         set implosionCenter(value) {
@@ -225,16 +229,169 @@
         bindAttribs() {
             super.bindAttribs()
             this.implosionCenterAttrib = gl.getUniformLocation(this.program, "u_implosionCenter");
-            this.implosionCenter = this.#implosionCenter
+            gl.uniform2f(this.implosionCenterAttrib, this.#implosionCenter.x, this.#implosionCenter.y) 
 
             this.implosionStrengthAttrib = gl.getUniformLocation(this.program, "u_implosionStrength")
-            this.implosionStrength = this.#implosionStrength
+            gl.uniform1f(this.implosionStrengthAttrib, this.#implosionStrength)
+        }
+    }
+
+    class SkinSmoothEffect extends StandardEffect {
+        constructor() {
+            super()
+            this.fragment = `
+                vec4 gaussian()
+                {
+                    float pi2 = 6.28318530718;
+        
+                    float Directions = 16.0; // BLUR DIRECTIONS (Default 16.0 - More is better but slower)
+                    float Quality = 3.0; // BLUR QUALITY (Default 4.0 - More is better but slower)
+                    float Size = 8.0; // BLUR SIZE (Radius)
+                
+                    vec2 Radius = Size / iResolution.xy;
+                    
+                    // Normalized pixel coordinates (from 0 to 1)
+                    vec2 uv = fragCoord / iResolution.xy;
+                    // Pixel colour
+                    vec4 Color = texture(iChannel0, uv);
+                    
+                    // Blur calculations
+                    for (float d=0.0; d < pi2; d += pi2 / Directions)
+                    {
+                        for (float i = 1.0 / Quality; i <= 1.0; i += 1.0 / Quality)
+                        {
+                            Color += texture(iChannel0, uv+vec2(cos(d), sin(d)) * Radius * i);		
+                        }
+                    }
+                    
+                    Color /= Quality * Directions - 15.0;
+                    fragColor =  Color;
+                }
+
+                vec4 overlay(vec4 a, vec4 b)
+                {
+                    vec4 x = vec4(2.0) * a * b;
+                    vec4 y = vec4(1.0) - vec4(2.0) * (vec4(1.0)-a) * (vec4(1.0)-b);
+                    vec4 result;
+                    result.r = mix(x.r, y.r, float(a.r > 0.5));
+                    result.g = mix(x.g, y.g, float(a.g > 0.5));
+                    result.b = mix(x.b, y.b, float(a.b > 0.5));
+                    result.a = mix(x.a, y.a, float(a.a > 0.5));
+                    return result;
+                }
+            `
+        }
+
+        bindAttribs() {
+            super.bindAttribs()
+        }
+    }
+
+    class FilterEffect extends StandardEffect {
+        #brightness
+        #contrast
+        #saturation
+        #hue
+
+        constructor() {
+            super()
+            this.fragment = `
+                precision mediump float;
+
+                uniform sampler2D u_videoTexture;
+                uniform float u_brightness;
+                uniform float u_contrast;
+                uniform float u_saturation;
+                uniform float u_hue;
+
+                varying vec2 v_texCoord;
+
+                void main() {
+                    vec4 color = texture2D(u_videoTexture, v_texCoord);
+
+                    // Adjust brightness
+                    color.rgb += (u_brightness - 1.0);
+
+                    // Adjust contrast
+                    color.rgb = (color.rgb - 0.5) * u_contrast + 0.5;
+
+                    // Adjust saturation
+                    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                    color.rgb = mix(vec3(gray), color.rgb, u_saturation);
+
+                    // Adjust hue
+                    /*float angle = u_hue * 3.14159265359; // Convert hue to radians
+                    float s = sin(angle);
+                    float c = cos(angle);
+                    vec3 rgb = vec3(
+                        c + (1.0 - c) / 3.0,
+                        1.0 / 3.0 * (1.0 - c) - sqrt(1.0 / 3.0) * s,
+                        1.0 / 3.0 * (1.0 - c) + sqrt(1.0 / 3.0) * s
+                    );
+                    color.rgb = mat3(
+                        rgb.x, rgb.x, rgb.x,
+                        rgb.z, rgb.x - 2.0 * rgb.z, rgb.z,
+                        rgb.z, rgb.z, rgb.y
+                    ) * color.rgb;*/
+
+                    gl_FragColor = color;
+                }
+            `
+            this.#brightness = 1.0
+            this.#contrast = 1.0
+            this.#saturation = 1.0
+            this.#hue = 0.0
+        }
+
+        set brightness(value) {
+            if (this.brightnessAttrib) {
+                this.#brightness = value
+                gl.uniform1f(this.brightnessAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+
+        set contrast(value) {
+            if (this.contrastAttrib) {
+                this.#contrast = value
+                gl.uniform1f(this.contrastAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+
+        set saturation(value) {
+            if (this.saturationAttrib) {
+                this.#saturation = value
+                gl.uniform1f(this.saturationAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+
+        set hue(value) {
+            if (this.hueAttrib) {
+                this.#hue = value
+                gl.uniform1f(this.hueAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+
+        bindAttribs() {
+            super.bindAttribs()
+            this.brightnessAttrib = gl.getUniformLocation(this.program, "u_brightness");
+            gl.uniform1f(this.brightnessAttrib, this.#brightness)
+            this.contrastAttrib = gl.getUniformLocation(this.program, "u_contrast")
+            gl.uniform1f(this.contrastAttrib, this.#contrast)
+            this.saturationAttrib = gl.getUniformLocation(this.program, "u_saturation")
+            gl.uniform1f(this.saturationAttrib, this.#saturation)
+            this.hueAttrib = gl.getUniformLocation(this.program, "u_hue")
+            gl.uniform1f(this.hueAttrib, this.#hue)
         }
     }
 
     const effectShaders = {
         standard: new StandardEffect(),
-        implosion: new ImplosionEffect()
+        implosion: new ImplosionEffect(),
+        filter: new FilterEffect()
     }
 
     function useEffectShader(shaderDefinition) {
@@ -283,7 +440,7 @@
 
             let frame = 0
             function captureFrame() {
-                const currentEffect = useEffectShader(effectShaders.implosion)
+                const currentEffect = useEffectShader(effectShaders.filter)
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
                 gl.activeTexture(gl.TEXTURE0)
@@ -293,13 +450,12 @@
 
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
-                /*context.drawImage(rawPreviewVideo, 0, 0, width, height)
-                const imageData = context.getImageData(0, 0, width, height)
-                const binaryData = new Uint8Array(imageData.data.buffer)
-                
+                const imageData = new Uint8Array(width * height * 4)
+                gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData)
+                const binaryData = new Uint8Array(imageData.buffer)
                 const packet = new Uint8Array(binaryData.byteLength + 1)
                 packet.set(binaryData, 1)
-                ws.send(packet)*/
+                ws.send(packet)
 
                 requestAnimationFrame(captureFrame)
                 frame++

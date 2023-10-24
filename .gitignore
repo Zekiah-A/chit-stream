@@ -170,7 +170,3 @@ dist
 
 # IntelliJ based IDEs
 .idea
-
-# Project files
-index.canvas2d.html
-index.webgl.html
