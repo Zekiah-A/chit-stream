@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chit-Stream</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0px;
+            padding: 0px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            top: 0;
+            left: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .stream-views {
+            display: flex;
+            column-gap: 8px;
+            align-items: center;
+        }
+        .vid-container {
+            position: relative;
+            border: 1px solid gray;
+            box-shadow: 0px 0px 4px gray;
+            display: inline-block;
+            min-height: 320px;
+            border-radius: 8px;
+            overflow: clip;
+        }
+        .vid-container > div {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            background: #626262a3;
+            padding: 4px;
+            border-radius: 0px 8px 0px 0px;
+            color: white;
+            backdrop-filter: blur(5px);
+        }
+    </style>
+</head>
+<body>
+    <div class="stream-views">
+        <div class="vid-container">
+            <video id="rawPreviewVideo" autoplay></video>
+            <div>Raw source video</div>
+        </div>
+        <span style="width: 64px;">-pass through webGL-></span>
+        <div class="vid-container">
+            <canvas id="previewCanvas" autoplay></canvas>
+            <div>Stream composite preview</div>
+        </div>
+    </div>
+    <button onclick="startStream()">Start streaming</button>
+    <button onclick="watchStream()">Start watching</button>
+</body>
+<script>
+    const gl = previewCanvas.getContext("webgl2")
+    const ws = new WebSocket("ws://localhost:3000")
+    ws.binaryType = "arraybuffer"
+
+    // Standard shader methods
+	function loadShader(gl, type, source) {
+		const shader = gl.createShader(type)
+		gl.shaderSource(shader, source)
+		gl.compileShader(shader)
+		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+			console.error(`Failed to compile shader: ${gl.getShaderInfoLog(shader)}`)
+			gl.deleteShader(shader)
+			return null
+		}
+
+		return shader
+	}
+
+	function compileShaderProgram(gl, vertexSource, fragmentSource) {
+		const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vertexSource)
+		const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fragmentSource)
+
+		const program = gl.createProgram()
+		gl.attachShader(program, vertexShader)
+		gl.attachShader(program, fragmentShader)
+		gl.linkProgram(program)
+
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			console.error(`Failed to init shader: ${gl.getProgramInfoLog(program,)}`)
+			return null
+		}
+		
+		return program
+	}
+
+    function bindBufferPositionAttrib(gl, buffer, vertexPositionAttrib) {
+        const components = 2
+        const type = gl.FLOAT
+        const normalize = false
+        const stride = 0 // Ignore, use components & type to determine byte stride
+        const offset = 0 // Start from buffer start
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+        gl.vertexAttribPointer(vertexPositionAttrib, components, type, normalize, stride, offset)
+        gl.enableVertexAttribArray(vertexPositionAttrib)
+    }
+
+    function createPositionBuffer(positionsArr) {
+        const buffer = gl.createBuffer()
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positionsArr), gl.STATIC_DRAW)
+
+        return buffer
+    }
+
+    // Effect shader definitions
+    class StandardEffect {
+        #time
+        #videoTexture
+
+        constructor() {
+            this.vertex = `
+                attribute vec4 a_vertexPosition;
+                attribute vec2 a_texCoord;
+                varying vec2 v_texCoord;
+
+                void main()
+                {
+                    gl_Position = a_vertexPosition;
+                    v_texCoord = a_texCoord;
+                }
+            `
+            this.fragment = `
+                precision mediump float;
+                uniform sampler2D u_videoTexture;
+                varying vec2 v_texCoord;
+
+                void main()
+                {
+                    gl_FragColor = texture2D(u_videoTexture, v_texCoord);
+                }
+            `
+            this.#time = 0
+            this.#videoTexture = null
+        }
+
+        set videoTexture(value) {
+            if (this.videoTextureAttrib) {
+                this.#videoTexture = value
+                gl.uniform1i(this.videoTextureAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+        get videoTexture() {
+            return this.#videoTexture
+        }
+
+        bindAttribs() {
+            this.vertexPosAttrib = gl.getAttribLocation(this.program, "a_vertexPosition")
+            this.vertexPosBuffer = createPositionBuffer([ 1.0,1.0, -1.0,1.0, 1.0,-1.0, -1.0,-1.0 ])
+            bindBufferPositionAttrib(gl, this.vertexPosBuffer, this.vertexPosAttrib)
+
+            this.texCoordAttrib = gl.getAttribLocation(this.program, "a_texCoord")
+            this.texCoordBuffer = createPositionBuffer([ 1.0,0.0, 0.0,0.0, 1.0,1.0, 0.0,1.0 ]) // UV coordinates, BL, BR, TL, TR
+            bindBufferPositionAttrib(gl, this.texCoordBuffer, this.texCoordAttrib)
+
+            this.videoTextureAttrib = gl.getUniformLocation(this.program, "u_videoTexture")
+            this.videoTexture = this.videoTexture
+        }
+    }
+
+    class ImplosionEffect extends StandardEffect {
+        #implosionCenter
+        #implosionStrength
+
+        constructor() {
+            super()
+            this.fragment = `
+                precision mediump float;
+                uniform sampler2D u_videoTexture;
+                varying vec2 v_texCoord;
+
+                uniform vec2 u_implosionCenter;
+                uniform float u_implosionStrength;
+
+                void main() {
+                    // Calculate the vector from the current fragment to the implosion center
+                    vec2 offset = v_texCoord - u_implosionCenter;
+                    
+                    // Calculate the distance from the implosion center
+                    float distance = length(offset);
+                    
+                    // Apply the implosion effect
+                    vec2 distortedTexCoord = v_texCoord - (offset * (1.0 / (1.0 + u_implosionStrength * distance)));
+
+                    gl_FragColor = texture2D(u_videoTexture, distortedTexCoord);
+                }
+            `
+            this.#implosionCenter = { x: 0.5, y: 0.5 }
+            this.#implosionStrength = 1.0
+        }
+
+        set implosionCenter(value) {
+            if (this.implosionCenterAttrib) {
+                this.#implosionCenter = value
+                gl.uniform2f(this.implosionCenterAttrib, value.x, value.y)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+        get implosionCenter() {
+            return this.#implosionCenter
+        }
+
+        set implosionStrength(value) {
+            if (this.implosionStrengthAttrib) {
+                this.#implosionStrength = value
+                gl.uniform1f(this.implosionStrengthAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+        get implosionStrength() {
+            return this.#implosionStrength
+        }
+
+        bindAttribs() {
+            super.bindAttribs()
+            this.implosionCenterAttrib = gl.getUniformLocation(this.program, "u_implosionCenter");
+            this.implosionCenter = this.#implosionCenter
+
+            this.implosionStrengthAttrib = gl.getUniformLocation(this.program, "u_implosionStrength")
+            this.implosionStrength = this.#implosionStrength
+        }
+    }
+
+    const effectShaders = {
+        standard: new StandardEffect(),
+        implosion: new ImplosionEffect()
+    }
+
+    function useEffectShader(shaderDefinition) {
+        let program = shaderDefinition.program
+        if (!program) {
+            program = compileShaderProgram(gl, shaderDefinition.vertex, shaderDefinition.fragment)
+            shaderDefinition.program = program
+            gl.useProgram(program)
+            shaderDefinition.bindAttribs()
+        }
+        else {
+            gl.useProgram(program)
+        }
+        return shaderDefinition
+    }
+    
+    // Stream methods
+    async function startStream() {
+        if (!navigator.mediaDevices.getUserMedia) {
+            alert("Error - Available camera device needed!")
+            return
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true }).catch(e => {})
+        if (stream == null) {
+            alert("Error - Failed acquiring permissions!")
+            return
+        }
+
+        gl.clear(gl.COLOR_BUFFER_BIT)
+
+        rawPreviewVideo.srcObject = stream
+        rawPreviewVideo.addEventListener("play", () => {
+            const width = rawPreviewVideo.videoWidth
+            const height = rawPreviewVideo.videoHeight
+            previewCanvas.width = width
+            previewCanvas.height = height
+
+            const videoTexture = gl.createTexture()
+            gl.bindTexture(gl.TEXTURE_2D, videoTexture)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]))
+
+            // Fill space with GL
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
+
+            let frame = 0
+            function captureFrame() {
+                const currentEffect = useEffectShader(effectShaders.implosion)
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+                gl.activeTexture(gl.TEXTURE0)
+                gl.bindTexture(gl.TEXTURE_2D, videoTexture)
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
+                currentEffect.videoTexture = 0
+
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+
+                /*context.drawImage(rawPreviewVideo, 0, 0, width, height)
+                const imageData = context.getImageData(0, 0, width, height)
+                const binaryData = new Uint8Array(imageData.data.buffer)
+                
+                const packet = new Uint8Array(binaryData.byteLength + 1)
+                packet.set(binaryData, 1)
+                ws.send(packet)*/
+
+                requestAnimationFrame(captureFrame)
+                frame++
+            }
+            captureFrame()
+        })
+
+        console.log("Started streaming")
+    }
+
+    async function watchStream() {
+        let imageData = null
+
+        ws.onmessage = async function({ data }) {
+            const u8Data = new Uint8ClampedArray(data)
+
+            switch (u8Data[0]) {
+                case 0: {
+                    let width = 1280
+                    let height = 720
+                    let fps = 0
+
+                    canvas.width = width
+                    canvas.height = height
+                    
+                    const dummyFrame = new Uint8ClampedArray(width * height * 4)
+                    imageData = new ImageData(dummyFrame, width, height)
+                    rawPreviewVideo.srcObject = canvas.captureStream(fps)
+                    break
+                }
+                case 1: {
+                    imageData.data.set(u8Data.subarray(1), 0) 
+                    context.putImageData(imageData, 0, 0)
+                    break
+                }
+            }
+        }
+
+        console.log("Started observing stream")
+    }
+</script>
+</html>
