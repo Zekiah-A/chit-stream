@@ -57,6 +57,13 @@
             display: flex;
             position: relative;
         }
+        .pipeline-item {
+            padding: 8px;
+            border: 1px solid #ffffff3b;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            background: linear-gradient(to bottom right, #fff0 80%, #b5b2b275);
+        }
         .dropdown {
             position: absolute;
             margin: 0px;
@@ -112,7 +119,7 @@
     <button onclick="watchStream()">Start watching</button>
 </body>
 <script>
-    const { button, div, li, ul, h4 } = van.tags
+    const { button, div, li, ul, h4, p, input } = van.tags
     const gl = previewCanvas.getContext("webgl2")
     const ws = new WebSocket("ws://localhost:3000")
     ws.binaryType = "arraybuffer"
@@ -206,6 +213,10 @@
         }
         get videoTexture() {
             return this.#videoTexture
+        }
+
+        exposes() {
+            return div("This effect can't be configured :(")
         }
 
         bindAttribs() {
@@ -425,6 +436,13 @@
             else throw new Error("Shader effect must be bound first with attribute")
         }
 
+        exposes() {
+            return div(
+                "Contrast",
+                input({type: "range", step: "any", min: "0", max: "2", value: this.#contrast, oninput: (e) => this.#contrast = e.target.value})
+            )
+        }
+
         bindAttribs() {
             super.bindAttribs()
             this.brightnessAttrib = gl.getUniformLocation(this.program, "u_brightness");
@@ -468,13 +486,13 @@
     }
 
     const effectShaders = {
-        standard: new StandardEffect(),
-        implosion: new ImplosionEffect(),
-        filter: new FilterEffect()
+        standard: StandardEffect,
+        implosion: ImplosionEffect,
+        filter: FilterEffect
     }
 
     const overlayShaders = {
-        image: new ImageOverlay()
+        image: ImageOverlay
     }
 
     function useEffectShader(shaderDefinition) {
@@ -509,7 +527,10 @@
         const pipelineState = van.state(pipeline)
 
         const EffectOverlayItem = (effectOverlay) => {
-            return div(effectOverlay.name)
+            return div({class: "pipeline-item"},
+                h4({class:"dropdown-title"}, effectOverlay.constructor.name),
+                effectOverlay.exposes()
+            )
         }
 
         const dropdown = ul({
@@ -520,14 +541,14 @@
             h4({class:"dropdown-title"}, "Create effect"),
             Object.keys(effectShaders)
                 .map(name => li({onclick: e => {
-                    pipelineState.val = pipelineState.val.add(effectShaders[name])
+                    pipelineState.val = pipelineState.val.add(new effectShaders[name]())
                     dropdown.style.display = "none"
                 }}, name[0].toUpperCase() + name.slice(1) + " effect")),
             h4({class:"dropdown-title"}, "Create overlay"),
             Object.keys(overlayShaders)
                 .map(name => li({onclick: e => {
                     aa = pipelineState.val
-                    pipelineState.val = pipelineState.val.add(overlayShaders[name])
+                    pipelineState.val = pipelineState.val.add(new overlayShaders[name]())
                     dropdown.style.display = "none"
                 }}, name[0].toUpperCase() + name.slice(1) + " overlay")),
         )
