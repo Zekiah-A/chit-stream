@@ -56,6 +56,13 @@
             column-gap: 8px;
             display: flex;
             position: relative;
+
+            max-width: 60vw;
+        }
+        .pipeline-items-container {
+            display: flex;
+            column-gap: 16px;
+            overflow-x: auto;
         }
         .pipeline-item {
             padding: 8px;
@@ -108,7 +115,7 @@
             <div>Raw source video</div>
         </div>
         <div class="pipeline-section" id="pipelineSection">
-            <span>Render pipeline</span>
+            <h4 style="margin: 0;">Render pipeline</h4>
         </div>
         <div class="vid-container">
             <canvas id="previewCanvas" autoplay></canvas>
@@ -119,7 +126,7 @@
     <button onclick="watchStream()">Start watching</button>
 </body>
 <script>
-    const { button, div, li, ul, h4, p, input } = van.tags
+    const { button, div, li, ul, h4, p, input, svg, path } = van.tags
     const gl = previewCanvas.getContext("webgl2")
     const ws = new WebSocket("ws://localhost:3000")
     ws.binaryType = "arraybuffer"
@@ -287,6 +294,26 @@
             return this.#implosionStrength
         }
 
+        exposes() {
+            return div(
+                div({style: "display: flex;"},
+                div({style: "width: 78px;"}, "Strength"),
+                    input({type: "range", step: "any", min: "-10", max: "10", value: this.#implosionStrength,
+                        oninput: (e) => this.implosionStrength = e.target.value})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Centre X"),
+                    input({type: "range", step: "any", min: "0", max: "1", value: this.implosionCenter.x,
+                        oninput: (e) => this.implosionCenter = { x: e.target.value, y: this.implosionCenter.y }}),
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Centre Y"),
+                    input({type: "range", step: "any", min: "0", max: "1", value: this.implosionCenter.y,
+                        oninput: (e) => this.implosionCenter = { x: this.implosionCenter.x, y: e.target.value }}),
+                )
+            )
+        }
+
         bindAttribs() {
             super.bindAttribs()
             this.implosionCenterAttrib = gl.getUniformLocation(this.program, "u_implosionCenter");
@@ -438,8 +465,26 @@
 
         exposes() {
             return div(
-                "Contrast",
-                input({type: "range", step: "any", min: "0", max: "2", value: this.#contrast, oninput: (e) => this.#contrast = e.target.value})
+                div({style: "display: flex;"},
+                div({style: "width: 78px;"}, "Brightness"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this.brightness,
+                        oninput: (e) => this.brightness = e.target.value})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Contrast"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this.contrast,
+                        oninput: (e) => this.contrast = e.target.value}),
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Hue"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this.hue,
+                        oninput: (e) => this.hue = e.target.value}),
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Saturation"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this.saturation,
+                        oninput: (e) => this.saturation = e.target.value}),
+                )
             )
         }
 
@@ -517,6 +562,12 @@
             this.effectOverlays.push(effectOverlay)
             return new PipelineState(this.effectOverlays)
         }
+        remove(effectOverlay) {
+            const index = this.effectOverlays.indexOf(effectOverlay)
+            if (index == -1) return console.error("Could not remove", effectOverlay, "index was null")
+            this.effectOverlays.splice(index, 1)
+            return new PipelineState(this.effectOverlays)
+        }
         load() {
             // TODO: Later
             return new PipelineState()
@@ -525,12 +576,51 @@
 
     const EffectOverlayPipeline = (pipeline) => {
         const pipelineState = van.state(pipeline)
+        let dragging = false
 
-        const EffectOverlayItem = (effectOverlay) => {
-            return div({class: "pipeline-item"},
-                h4({class:"dropdown-title"}, effectOverlay.constructor.name),
-                effectOverlay.exposes()
+        const EffectOverlayItem = (effectOverlay, parentContainer) => {
+            const dragRegion = div({style: "display: flex;flex-grow: 1;justify-content: center; cursor: grab;",
+                onmousedown: e => {
+                    dragRegion.style.cursor = "grabbing"
+                    thisItem.style.position = "absolute"
+                    thisItem.style.zIndex = "2"
+                    dragging = true
+                },
+                innerHTML:`<svg xmlns="http://www.w3.org/2000/svg" height="20" viewbox="0 -960 960 960" width="20">
+                    <path fill="white" d="M360-160q-33 0-56.5-23.5T280-240q0-33 23.5-56.5T360-320q33 0 56.5 23.5T440-240q0 33-23.5 56.5T360-160Zm240 0q-33 0-56.5-23.5T520-240q0-33 23.5-56.5T600-320q33 0 56.5 23.5T680-240q0 33-23.5 56.5T600-160ZM360-400q-33 0-56.5-23.5T280-480q0-33 23.5-56.5T360-560q33 0 56.5 23.5T440-480q0 33-23.5 56.5T360-400Zm240 0q-33 0-56.5-23.5T520-480q0-33 23.5-56.5T600-560q33 0 56.5 23.5T680-480q0 33-23.5 56.5T600-400ZM360-640q-33 0-56.5-23.5T280-720q0-33 23.5-56.5T360-800q33 0 56.5 23.5T440-720q0 33-23.5 56.5T360-640Zm240 0q-33 0-56.5-23.5T520-720q0-33 23.5-56.5T600-800q33 0 56.5 23.5T680-720q0 33-23.5 56.5T600-640Z"></path>
+                </svg>`}
             )
+
+            function resetDrag(e) {
+                dragRegion.style.cursor = "grab"
+                thisItem.style.position = "static"
+                thisItem.style.zIndex = "0"
+                dragging = false
+            }
+
+            const thisItem = div({
+                    class: "pipeline-item",
+                    onmousemove: e => {
+                        if (!dragging) return
+                        const containerPos = e.target.parentElement.getBoundingClientRect()
+                        thisItem.style.left = (e.offsetX) + "px"
+                        thisItem.style.top = (e.offsetY) + "px"
+                    },
+                    onmouseleave: resetDrag,
+                    onmouseup: resetDrag
+                },
+                div({style: "display: flex;height: 20px;"},
+                    h4({class:"dropdown-title"}, effectOverlay.constructor.name),
+                    dragRegion,
+                    div({style:"cursor:pointer;",
+                        onclick: () => pipelineState.val = pipelineState.val.remove(effectOverlay),
+                        innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20">
+                            <path fill="white" d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
+                        </svg>`}),
+                ),
+                div({style: "margin-top: 16px;margin-left: 8px;margin-right: 8px;"}, effectOverlay.exposes())
+            )
+            return thisItem
         }
 
         const dropdown = ul({
@@ -554,8 +644,7 @@
         )
         
         const pipelineContainer = div({class: "pipeline-container"},
-            // TODO: fix this
-            () => div({style: "display: flex;"}, pipelineState.val.effectOverlays.map(EffectOverlayItem)),
+            () => div({class: "pipeline-items-container"}, pipelineState.val.effectOverlays.map(EffectOverlayItem)),
             button({
                 onclick: e => {
                     dropdown.style.display = "block"
