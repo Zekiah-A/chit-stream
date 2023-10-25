@@ -56,8 +56,7 @@
             column-gap: 8px;
             display: flex;
             position: relative;
-
-            max-width: 60vw;
+            width: 100%;
         }
         .pipeline-items-container {
             display: flex;
@@ -70,6 +69,9 @@
             border-radius: 8px;
             backdrop-filter: blur(10px);
             background: linear-gradient(to bottom right, #fff0 80%, #b5b2b275);
+            user-select: none;
+            min-width: 276px;
+            height: 274px;
         }
         .dropdown {
             position: absolute;
@@ -114,13 +116,13 @@
             <video id="rawPreviewVideo" autoplay></video>
             <div>Raw source video</div>
         </div>
-        <div class="pipeline-section" id="pipelineSection">
-            <h4 style="margin: 0;">Render pipeline</h4>
-        </div>
         <div class="vid-container">
             <canvas id="previewCanvas" autoplay></canvas>
             <div>Stream composite preview</div>
         </div>
+    </div>
+    <div class="pipeline-section" id="pipelineSection">
+        <h4 style="margin: 0;">Render pipeline</h4>
     </div>
     <button onclick="startStream()">Start streaming</button>
     <button onclick="watchStream()">Start watching</button>
@@ -528,6 +530,31 @@
             this.image = null
             this.transform = [ 1.0,1.0, -1.0,1.0, 1.0,-1.0, -1.0,-1.0 ]
         }
+
+        exposes() {
+            return div(
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "X"),    
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Y"),
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Width"),    
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Height"),
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;flex-direction:column;"},
+                    h4({style:"margin-top: 8px;margin-bottom: 4px;"}, "Image:"),
+                    input({type:"file"})
+                )
+            )
+        }
     }
 
     const effectShaders = {
@@ -576,12 +603,23 @@
 
     const EffectOverlayPipeline = (pipeline) => {
         const pipelineState = van.state(pipeline)
-        let dragging = false
 
         const EffectOverlayItem = (effectOverlay, parentContainer) => {
+            let dragging = false
+            let leftOffset = 0
+            let topOffset = 0
+
             const dragRegion = div({style: "display: flex;flex-grow: 1;justify-content: center; cursor: grab;",
                 onmousedown: e => {
+                    const itemPos = thisItem.getBoundingClientRect()
+                    leftOffset = e.clientX - itemPos.left
+                    topOffset = e.clientY - itemPos.top
+
+                    thisItem.style.left = thisItem.offsetLeft + "px"
+                    thisItem.style.top = thisItem.offsetTop + "px"
+
                     dragRegion.style.cursor = "grabbing"
+                    thisItem.style.boxShadow = "rgba(89, 89, 89, 0.61) 0px 0px 16px"
                     thisItem.style.position = "absolute"
                     thisItem.style.zIndex = "2"
                     dragging = true
@@ -592,6 +630,9 @@
             )
 
             function resetDrag(e) {
+                thisItem.style.left = thisItem.offsetLeft + "px"
+                thisItem.style.top = thisItem.offsetTop + "px"
+                thisItem.style.boxShadow = "none"
                 dragRegion.style.cursor = "grab"
                 thisItem.style.position = "static"
                 thisItem.style.zIndex = "0"
@@ -602,9 +643,9 @@
                     class: "pipeline-item",
                     onmousemove: e => {
                         if (!dragging) return
-                        const containerPos = e.target.parentElement.getBoundingClientRect()
-                        thisItem.style.left = (e.offsetX) + "px"
-                        thisItem.style.top = (e.offsetY) + "px"
+                        const containerPos = parentContainer.getBoundingClientRect()
+                        thisItem.style.left = (e.clientX - containerPos.left - leftOffset) + "px"
+                        thisItem.style.top = (e.clientY - containerPos.top - topOffset) + "px"
                     },
                     onmouseleave: resetDrag,
                     onmouseup: resetDrag
@@ -637,14 +678,16 @@
             h4({class:"dropdown-title"}, "Create overlay"),
             Object.keys(overlayShaders)
                 .map(name => li({onclick: e => {
-                    aa = pipelineState.val
                     pipelineState.val = pipelineState.val.add(new overlayShaders[name]())
                     dropdown.style.display = "none"
                 }}, name[0].toUpperCase() + name.slice(1) + " overlay")),
         )
         
+        const pipelineItems = div({class: "pipeline-items-container"})
         const pipelineContainer = div({class: "pipeline-container"},
-            () => div({class: "pipeline-items-container"}, pipelineState.val.effectOverlays.map(EffectOverlayItem)),
+            (dom) => dom
+                ? van.add(pipelineItems, EffectOverlayItem(pipelineState.val.effectOverlays.at(-1), pipelineItems))
+                : pipelineState.val.effectOverlays.map(effectOverlay => EffectOverlayItem(effectOverlay, pipelineItems)),
             button({
                 onclick: e => {
                     dropdown.style.display = "block"
