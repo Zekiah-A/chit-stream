@@ -15,6 +15,8 @@
             width: 100%;
             height: 100%;
             font-family: Arial, Helvetica, sans-serif;
+            background-image: url(./creo.png);
+            color: white;
         }
         .stream-views {
             display: flex;
@@ -40,10 +42,57 @@
             color: white;
             backdrop-filter: blur(5px);
         }
+
+        .pipeline-section {
+            min-width: 256px;
+            display: flex;
+            flex-direction: column;
+            align-self: stretch;
+        }
+        .pipeline-container {
+            flex-grow: 1;
+            padding: 8px;
+            flex-direction: row;
+            column-gap: 8px;
+            display: flex;
+            position: relative;
+        }
+        .dropdown {
+            position: absolute;
+            margin: 0px;
+            padding-left: 0;
+            border-radius: 4px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0px 0px 8px #404040;
+            padding-right: 0;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            display: flex;
+            list-style-type: none;
+            width: max-content;
+            z-index: 1;
+        }
+        .dropdown > li {
+            user-select: none;
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+        }
+        .dropdown > li:hover {
+            background-color: #e3e3e33e;
+        }
+        .dropdown-title {
+            margin-left: 8px;
+            margin-top: 0px;
+            margin-bottom: 0px;
+            user-select: none;
+        }
     </style>
     <script>var exports = {};</script>
     <script src="./lib/gputext.min.js"></script>
     <script src="./lib/gputext-webgl.min.js"></script>
+    <script src="./lib/van-1.2.4.nomodule.min.js"></script>
 </head>
 <body>
     <div class="stream-views">
@@ -51,7 +100,9 @@
             <video id="rawPreviewVideo" autoplay></video>
             <div>Raw source video</div>
         </div>
-        <span style="width: 64px;">-pass through webGL-></span>
+        <div class="pipeline-section" id="pipelineSection">
+            <span>Render pipeline</span>
+        </div>
         <div class="vid-container">
             <canvas id="previewCanvas" autoplay></canvas>
             <div>Stream composite preview</div>
@@ -61,6 +112,7 @@
     <button onclick="watchStream()">Start watching</button>
 </body>
 <script>
+    const { button, div, li, ul, h4 } = van.tags
     const gl = previewCanvas.getContext("webgl2")
     const ws = new WebSocket("ws://localhost:3000")
     ws.binaryType = "arraybuffer"
@@ -118,7 +170,6 @@
 
     // Effect shader definitions
     class StandardEffect {
-        #time
         #videoTexture
 
         constructor() {
@@ -143,7 +194,6 @@
                     gl_FragColor = texture2D(u_videoTexture, v_texCoord);
                 }
             `
-            this.#time = 0
             this.#videoTexture = null
         }
 
@@ -388,10 +438,43 @@
         }
     }
 
+    class ImageOverlay extends StandardEffect {
+        constructor() {
+            super()
+            this.vertex = `
+                attribute vec4 a_vertexPosition;
+                attribute vec2 a_texCoord;
+                varying vec2 v_texCoord;
+
+                void main()
+                {
+                    gl_Position = a_vertexPosition;
+                    v_texCoord = a_texCoord;
+                }
+            `
+            this.fragment = `
+                precision mediump float;
+                uniform sampler2D u_videoTexture;
+                varying vec2 v_texCoord;
+
+                void main()
+                {
+                    gl_FragColor = texture2D(u_videoTexture, v_texCoord);
+                }
+            `
+            this.image = null
+            this.transform = [ 1.0,1.0, -1.0,1.0, 1.0,-1.0, -1.0,-1.0 ]
+        }
+    }
+
     const effectShaders = {
         standard: new StandardEffect(),
         implosion: new ImplosionEffect(),
         filter: new FilterEffect()
+    }
+
+    const overlayShaders = {
+        image: new ImageOverlay()
     }
 
     function useEffectShader(shaderDefinition) {
@@ -407,6 +490,67 @@
         }
         return shaderDefinition
     }
+
+    class PipelineState {
+        constructor(effectOverlays = []) {
+            this.effectOverlays = effectOverlays
+        }
+        add(effectOverlay) {
+            this.effectOverlays.push(effectOverlay)
+            return new PipelineState(this.effectOverlays)
+        }
+        load() {
+            // TODO: Later
+            return new PipelineState()
+        }
+    }
+
+    const EffectOverlayPipeline = (pipeline) => {
+        const pipelineState = van.state(pipeline)
+
+        const EffectOverlayItem = (effectOverlay) => {
+            return div(effectOverlay.name)
+        }
+
+        const dropdown = ul({
+                class: "dropdown",
+                style: "display: none;",
+                onmouseleave: e => dropdown.style.display = "none"
+            },
+            h4({class:"dropdown-title"}, "Create effect"),
+            Object.keys(effectShaders)
+                .map(name => li({onclick: e => {
+                    pipelineState.val = pipelineState.val.add(effectShaders[name])
+                    dropdown.style.display = "none"
+                }}, name[0].toUpperCase() + name.slice(1) + " effect")),
+            h4({class:"dropdown-title"}, "Create overlay"),
+            Object.keys(overlayShaders)
+                .map(name => li({onclick: e => {
+                    aa = pipelineState.val
+                    pipelineState.val = pipelineState.val.add(overlayShaders[name])
+                    dropdown.style.display = "none"
+                }}, name[0].toUpperCase() + name.slice(1) + " overlay")),
+        )
+        
+        const pipelineContainer = div({class: "pipeline-container"},
+            // TODO: fix this
+            () => div({style: "display: flex;"}, pipelineState.val.effectOverlays.map(EffectOverlayItem)),
+            button({
+                onclick: e => {
+                    dropdown.style.display = "block"
+                    dropdown.style.left = (e.offsetX + e.target.offsetLeft + 8) + "px"
+                    dropdown.style.top = (e.offsetY + e.target.offsetTop + 8) + "px"
+                },
+                style: "height: 64px; align-self: center; position: relative;"
+            }, "+ Add new"),
+        )
+
+        van.add(pipelineContainer, dropdown)
+        return pipelineContainer
+    }
+
+    const pipeline = new PipelineState()
+    van.add(pipelineSection, EffectOverlayPipeline(pipeline))
     
     // Stream methods
     async function startStream() {
