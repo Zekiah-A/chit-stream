@@ -140,7 +140,7 @@
 		gl.shaderSource(shader, source)
 		gl.compileShader(shader)
 		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-			console.error(`Failed to compile shader: ${gl.getShaderInfoLog(shader)}`)
+			console.error("Failed to compile shader:", gl.getShaderInfoLog(shader))
 			gl.deleteShader(shader)
 			return null
 		}
@@ -158,7 +158,7 @@
 		gl.linkProgram(program)
 
 		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-			console.error(`Failed to init shader: ${gl.getProgramInfoLog(program,)}`)
+			console.error("Failed to init shader:", gl.getProgramInfoLog(program))
 			return null
 		}
 		
@@ -577,15 +577,18 @@
                 precision mediump float;
                 uniform sampler2D u_videoTexture;
                 uniform sampler2D u_inputTexture;
+                uniform float u_opacity;
                 varying vec2 v_texCoord;
 
                 void main()
                 {
                     vec4 behindTex = texture2D(u_videoTexture, v_texCoord);
                     vec4 inputTex = texture2D(u_inputTexture, v_texCoord);
-                    gl_FragColor = mix(behindTex, inputTex, 1.0);
+                    gl_FragColor = mix(behindTex, inputTex, u_opacity);
                 }
             `
+            this._inputTexture = null
+            this._opacity = 1.0
 
             if (!navigator.mediaDevices.getUserMedia) {
                 throw new Error("Error - Media devices not found", e)
@@ -617,6 +620,16 @@
             })
         }
 
+        set opacity(value) {
+            if (this.opacityAttrib) {
+                this._opacity = value
+                gl.uniform1f(this.opacityAttrib, value)
+            }
+            else throw new Error("Shader effect must be bound first with attribute")
+        }
+        get opacity() {
+            return this._opacity
+        }
         get width() {
             return this._width
         }
@@ -627,7 +640,10 @@
         frame() {
             gl.activeTexture(gl.TEXTURE1)
             gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
-            gl.texImage2D(gl.TEXTURE_2D, 1, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
+
+            // Fix later
+            gl.uniform1i(this.inputTextureAttrib, 1)
         }
 
         exposes() {
@@ -649,6 +665,11 @@
                     div({style: "width: 78px;"}, "Height"),
                     input({type: "range", step: "any", min: "-10", max: "10", value: 0})
                 ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Opacity"),
+                    input({type: "range", step: "any", min: "0", max: "1", value: this._opacity,
+                        oninput: (e) => this.opacity = e.target.value})
+                ),
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Source"),
                 select(option({value: "640x480"}, "640x480"))
             )
@@ -658,6 +679,9 @@
             super.bindAttribs()
             this.inputTextureAttrib = gl.getUniformLocation(this.program, "u_inputTexture")
             gl.uniform1i(this.inputTextureAttrib, this._inputTexture)
+
+            this.opacityAttrib = gl.getUniformLocation(this.program, "u_opacity")
+            gl.uniform1f(this.opacityAttrib, this._opacity)
         }
     }
 
@@ -832,16 +856,17 @@
                 // Hand last frame texture to shader
                 gl.activeTexture(gl.TEXTURE0)
                 gl.bindTexture(gl.TEXTURE_2D, fbTexture)
+                //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, fbTexture)
                 currentEffect.videoTexture = 0
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, fbTexture)
                 
                 // Let effect do it's per frame operations
-                shaderDefinition.frame()
+                currentEffect.frame()
 
                 // Hand next frame texture
-                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                //gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
                 gl.clear(gl.COLOR_BUFFER_BIT)
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                //gl.bindFramebuffer(gl.FRAMEBUFFER, null)
             }
 
             if (pipeline.length != 0) {
