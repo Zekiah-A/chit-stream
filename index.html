@@ -109,6 +109,7 @@
     <script src="./lib/gputext.min.js"></script>
     <script src="./lib/gputext-webgl.min.js"></script>
     <script src="./lib/van-1.2.4.nomodule.min.js"></script>
+    <script src="./lib/van-x.nomodule.min.js"></script>
 </head>
 <body>
     <div class="stream-views">
@@ -128,7 +129,7 @@
     <button onclick="watchStream()">Start watching</button>
 </body>
 <script>
-    const { button, div, li, ul, h4, p, input, svg, path } = van.tags
+    const { button, div, li, ul, h4, p, input, svg, path, select, option } = van.tags
     const gl = previewCanvas.getContext("webgl2")
     const ws = new WebSocket("ws://localhost:3000")
     ws.binaryType = "arraybuffer"
@@ -210,23 +211,23 @@
                     gl_FragColor = texture2D(u_videoTexture, v_texCoord);
                 }
             `
-            this.#videoTexture = null
+            this._videoTexture = null
         }
 
         set videoTexture(value) {
             if (this.videoTextureAttrib) {
-                this.#videoTexture = value
+                this._videoTexture = value
                 gl.uniform1i(this.videoTextureAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
         get videoTexture() {
-            return this.#videoTexture
+            return this._videoTexture
         }
 
-        exposes() {
-            return div("This effect can't be configured :(")
-        }
+        exposes() { return div("This effect can't be configured :(") }
+        frame() { /* No-op */ }
+        destruct() { /* No-op */ }
 
         bindAttribs() {
             this.vertexPosAttrib = gl.getAttribLocation(this.program, "a_vertexPosition")
@@ -238,7 +239,7 @@
             bindBufferPositionAttrib(gl, this.texCoordBuffer, this.texCoordAttrib)
 
             this.videoTextureAttrib = gl.getUniformLocation(this.program, "u_videoTexture")
-            gl.uniform1i(this.videoTextureAttrib, this.#videoTexture)
+            gl.uniform1i(this.videoTextureAttrib, this._videoTexture)
         }
     }
 
@@ -270,37 +271,37 @@
                     gl_FragColor = texture2D(u_videoTexture, distortedTexCoord);
                 }
             `
-            this.#implosionCenter = { x: 0.5, y: 0.5 }
-            this.#implosionStrength = 1
+            this._implosionCenter = { x: 0.5, y: 0.5 }
+            this._implosionStrength = 1
         }
 
         set implosionCenter(value) {
             if (this.implosionCenterAttrib) {
-                this.#implosionCenter = value
+                this._implosionCenter = value
                 gl.uniform2f(this.implosionCenterAttrib, value.x, value.y)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
         get implosionCenter() {
-            return this.#implosionCenter
+            return this._implosionCenter
         }
 
         set implosionStrength(value) {
             if (this.implosionStrengthAttrib) {
-                this.#implosionStrength = value
+                this._implosionStrength = value
                 gl.uniform1f(this.implosionStrengthAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
         get implosionStrength() {
-            return this.#implosionStrength
+            return this._implosionStrength
         }
 
         exposes() {
             return div(
                 div({style: "display: flex;"},
                 div({style: "width: 78px;"}, "Strength"),
-                    input({type: "range", step: "any", min: "-10", max: "10", value: this.#implosionStrength,
+                    input({type: "range", step: "any", min: "-10", max: "10", value: this.implosionStrength,
                         oninput: (e) => this.implosionStrength = e.target.value})
                 ),
                 div({style: "display: flex;"},
@@ -319,10 +320,10 @@
         bindAttribs() {
             super.bindAttribs()
             this.implosionCenterAttrib = gl.getUniformLocation(this.program, "u_implosionCenter");
-            gl.uniform2f(this.implosionCenterAttrib, this.#implosionCenter.x, this.#implosionCenter.y) 
+            gl.uniform2f(this.implosionCenterAttrib, this._implosionCenter.x, this._implosionCenter.y) 
 
             this.implosionStrengthAttrib = gl.getUniformLocation(this.program, "u_implosionStrength")
-            gl.uniform1f(this.implosionStrengthAttrib, this.#implosionStrength)
+            gl.uniform1f(this.implosionStrengthAttrib, this._implosionStrength)
         }
     }
 
@@ -427,42 +428,54 @@
                     gl_FragColor = color;
                 }
             `
-            this.#brightness = 1.0
-            this.#contrast = 1.0
-            this.#saturation = 1.0
-            this.#hue = 0.0
+            this._brightness = 1.0
+            this._contrast = 1.0
+            this._saturation = 1.0
+            this._hue = 0.0
         }
 
         set brightness(value) {
             if (this.brightnessAttrib) {
-                this.#brightness = value
+                this._brightness = value
                 gl.uniform1f(this.brightnessAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
+        get brightness() {
+            return this._brightness
+        }
 
         set contrast(value) {
             if (this.contrastAttrib) {
-                this.#contrast = value
+                this._contrast = value
                 gl.uniform1f(this.contrastAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
+        get contrast() {
+            return this._contrast
+        }
 
         set saturation(value) {
             if (this.saturationAttrib) {
-                this.#saturation = value
+                this._saturation = value
                 gl.uniform1f(this.saturationAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
         }
+        get saturation() {
+            return this._saturation
+        }
 
         set hue(value) {
             if (this.hueAttrib) {
-                this.#hue = value
+                this._hue = value
                 gl.uniform1f(this.hueAttrib, value)
             }
             else throw new Error("Shader effect must be bound first with attribute")
+        }
+        get hue() {
+            return this._hue
         }
 
         exposes() {
@@ -493,13 +506,13 @@
         bindAttribs() {
             super.bindAttribs()
             this.brightnessAttrib = gl.getUniformLocation(this.program, "u_brightness");
-            gl.uniform1f(this.brightnessAttrib, this.#brightness)
+            gl.uniform1f(this.brightnessAttrib, this._brightness)
             this.contrastAttrib = gl.getUniformLocation(this.program, "u_contrast")
-            gl.uniform1f(this.contrastAttrib, this.#contrast)
+            gl.uniform1f(this.contrastAttrib, this._contrast)
             this.saturationAttrib = gl.getUniformLocation(this.program, "u_saturation")
-            gl.uniform1f(this.saturationAttrib, this.#saturation)
+            gl.uniform1f(this.saturationAttrib, this._saturation)
             this.hueAttrib = gl.getUniformLocation(this.program, "u_hue")
-            gl.uniform1f(this.hueAttrib, this.#hue)
+            gl.uniform1f(this.hueAttrib, this._hue)
         }
     }
 
@@ -557,12 +570,108 @@
         }
     }
 
+    class CameraInput extends StandardEffect {
+        constructor() {
+            super()
+            this.fragment = `
+                precision mediump float;
+                uniform sampler2D u_videoTexture;
+                uniform sampler2D u_inputTexture;
+                varying vec2 v_texCoord;
+
+                void main()
+                {
+                    vec4 behindTex = texture2D(u_videoTexture, v_texCoord);
+                    vec4 inputTex = texture2D(u_inputTexture, v_texCoord);
+                    gl_FragColor = mix(behindTex, inputTex, 1.0);
+                }
+            `
+
+            if (!navigator.mediaDevices.getUserMedia) {
+                throw new Error("Error - Media devices not found", e)
+                return
+            }
+            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+                if (stream == null) {
+                    throw new Error("Error - Failed acquiring permissions!", e)
+                    return
+                }
+
+                gl.clear(gl.COLOR_BUFFER_BIT)
+
+                rawPreviewVideo.srcObject = stream
+                rawPreviewVideo.addEventListener("play", () => {
+                    this._width = rawPreviewVideo.videoWidth
+                    this._height = rawPreviewVideo.videoHeight
+                    previewCanvas.width = this._width
+                    previewCanvas.height = this._height
+
+                    this._inputTexture = gl.createTexture()
+                    gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                })
+            }).catch(e => {
+                throw new Error("Error - Failed acquiring video media! " + e)
+            })
+        }
+
+        get width() {
+            return this._width
+        }
+        get height() {
+            return this._height
+        }
+
+        frame() {
+            gl.activeTexture(gl.TEXTURE1)
+            gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
+            gl.texImage2D(gl.TEXTURE_2D, 1, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
+        }
+
+        exposes() {
+            return div(
+                h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Transform"),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "X"),    
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Y"),
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Width"),    
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Height"),
+                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                ),
+                h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Source"),
+                select(option({value: "640x480"}, "640x480"))
+            )
+        }
+
+        bindAttribs() {
+            super.bindAttribs()
+            this.inputTextureAttrib = gl.getUniformLocation(this.program, "u_inputTexture")
+            gl.uniform1i(this.inputTextureAttrib, this._inputTexture)
+        }
+    }
+
+    class ScreenInput extends StandardEffect { constructor() { super() } }
+
+    const standardEffect = new StandardEffect()
+    const inputShaders = {
+        camera: CameraInput,
+        screen: ScreenInput
+    }
     const effectShaders = {
-        standard: StandardEffect,
         implosion: ImplosionEffect,
         filter: FilterEffect
     }
-
     const overlayShaders = {
         image: ImageOverlay
     }
@@ -581,30 +690,12 @@
         return shaderDefinition
     }
 
-    class PipelineState {
-        constructor(effectOverlays = []) {
-            this.effectOverlays = effectOverlays
-        }
-        add(effectOverlay) {
-            this.effectOverlays.push(effectOverlay)
-            return new PipelineState(this.effectOverlays)
-        }
-        remove(effectOverlay) {
-            const index = this.effectOverlays.indexOf(effectOverlay)
-            if (index == -1) return console.error("Could not remove", effectOverlay, "index was null")
-            this.effectOverlays.splice(index, 1)
-            return new PipelineState(this.effectOverlays)
-        }
-        load() {
-            // TODO: Later
-            return new PipelineState()
-        }
-    }
-
     const EffectOverlayPipeline = (pipeline) => {
-        const pipelineState = van.state(pipeline)
+        const pipelineState = vanX.reactive(pipeline)
 
-        const EffectOverlayItem = (effectOverlay, parentContainer) => {
+        const EffectOverlayItem = (itemState, deleter, parentContainer) => {
+            const effect = itemState.val
+            const deleteThis = function() { effect.destruct(); deleter() }
             let dragging = false
             let leftOffset = 0
             let topOffset = 0
@@ -651,15 +742,15 @@
                     onmouseup: resetDrag
                 },
                 div({style: "display: flex;height: 20px;"},
-                    h4({class:"dropdown-title"}, effectOverlay.constructor.name),
+                    h4({class:"dropdown-title"}, effect.constructor.name),
                     dragRegion,
                     div({style:"cursor:pointer;",
-                        onclick: () => pipelineState.val = pipelineState.val.remove(effectOverlay),
+                        onclick: () => deleteThis(),
                         innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20">
                             <path fill="white" d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
                         </svg>`}),
                 ),
-                div({style: "margin-top: 16px;margin-left: 8px;margin-right: 8px;"}, effectOverlay.exposes())
+                div({style: "margin-top: 16px;margin-left: 8px;margin-right: 8px;"}, effect.exposes())
             )
             return thisItem
         }
@@ -669,25 +760,30 @@
                 style: "display: none;",
                 onmouseleave: e => dropdown.style.display = "none"
             },
+            h4({class:"dropdown-title"}, "Create input"),
+            Object.keys(inputShaders)
+            .map(name => li({onclick: e => {
+                    pipelineState.push(new inputShaders[name]())
+                    dropdown.style.display = "none"
+                }}, name[0].toUpperCase() + name.slice(1) + " input")),
             h4({class:"dropdown-title"}, "Create effect"),
             Object.keys(effectShaders)
                 .map(name => li({onclick: e => {
-                    pipelineState.val = pipelineState.val.add(new effectShaders[name]())
+                    pipelineState.push(new effectShaders[name]())
                     dropdown.style.display = "none"
                 }}, name[0].toUpperCase() + name.slice(1) + " effect")),
             h4({class:"dropdown-title"}, "Create overlay"),
             Object.keys(overlayShaders)
                 .map(name => li({onclick: e => {
-                    pipelineState.val = pipelineState.val.add(new overlayShaders[name]())
+                    pipelineState.push(new overlayShaders[name]())
                     dropdown.style.display = "none"
                 }}, name[0].toUpperCase() + name.slice(1) + " overlay")),
         )
-        
-        const pipelineItems = div({class: "pipeline-items-container"})
+    
+        const pipelineItems = vanX.list(div, pipelineState, (itemState, deleter) => EffectOverlayItem(itemState, deleter, pipelineItems))
+        pipelineItems.className = "pipeline-items-container"
         const pipelineContainer = div({class: "pipeline-container"},
-            (dom) => dom
-                ? van.add(pipelineItems, EffectOverlayItem(pipelineState.val.effectOverlays.at(-1), pipelineItems))
-                : pipelineState.val.effectOverlays.map(effectOverlay => EffectOverlayItem(effectOverlay, pipelineItems)),
+            pipelineItems,
             button({
                 onclick: e => {
                     dropdown.style.display = "block"
@@ -702,64 +798,75 @@
         return pipelineContainer
     }
 
-    const pipeline = new PipelineState()
+    let pipeline = []
     van.add(pipelineSection, EffectOverlayPipeline(pipeline))
     
     // Stream methods
     async function startStream() {
-        if (!navigator.mediaDevices.getUserMedia) {
-            alert("Error - Available camera device needed!")
-            return
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true }).catch(e => {})
-        if (stream == null) {
-            alert("Error - Failed acquiring permissions!")
-            return
-        }
-
         gl.clear(gl.COLOR_BUFFER_BIT)
+        const width = 640
+        const height = 480
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
 
-        rawPreviewVideo.srcObject = stream
-        rawPreviewVideo.addEventListener("play", () => {
-            const width = rawPreviewVideo.videoWidth
-            const height = rawPreviewVideo.videoHeight
-            previewCanvas.width = width
-            previewCanvas.height = height
+        let frame = 0
+        function captureFrame() {
+            const framebuffer = gl.createFramebuffer()
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
 
-            const videoTexture = gl.createTexture()
-            gl.bindTexture(gl.TEXTURE_2D, videoTexture)
+            const fbTexture = gl.createTexture()
+            gl.bindTexture(gl.TEXTURE_2D, fbTexture)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]))
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTexture, 0)
 
-            // Fill space with GL
-            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
-
-            let frame = 0
-            function captureFrame() {
-                const currentEffect = useEffectShader(effectShaders.filter)
-                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-                gl.activeTexture(gl.TEXTURE0)
-                gl.bindTexture(gl.TEXTURE_2D, videoTexture)
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
-                currentEffect.videoTexture = 0
-
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-
-                const imageData = new Uint8Array(width * height * 4)
-                gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData)
-                const binaryData = new Uint8Array(imageData.buffer)
-                const packet = new Uint8Array(binaryData.byteLength + 1)
-                packet.set(binaryData, 1)
-                ws.send(packet)
-
-                requestAnimationFrame(captureFrame)
-                frame++
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+                console.error("Framebuffer is not complete")
+                return
             }
-            captureFrame()
-        })
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null) // unbind
 
+            function pipelineStep(effect) {
+                const currentEffect = useEffectShader(effect)
+
+                // Hand last frame texture to shader
+                gl.activeTexture(gl.TEXTURE0)
+                gl.bindTexture(gl.TEXTURE_2D, fbTexture)
+                currentEffect.videoTexture = 0
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, fbTexture)
+                
+                // Let effect do it's per frame operations
+                shaderDefinition.frame()
+
+                // Hand next frame texture
+                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                gl.clear(gl.COLOR_BUFFER_BIT)
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+            }
+
+            if (pipeline.length != 0) {
+                for (const effect of pipeline){ if (effect) pipelineStep(effect) } // can be holey
+            }
+            else {
+                pipelineStep(standardEffect)
+            }
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+            gl.clear(gl.COLOR_BUFFER_BIT)
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+
+            /*
+            const imageData = new Uint8Array(width * height * 4)
+            gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData)
+            const binaryData = new Uint8Array(imageData.buffer)
+            const packet = new Uint8Array(binaryData.byteLength + 1)
+            packet.set(binaryData, 1)
+            ws.send(packet)
+            */
+            requestAnimationFrame(captureFrame)
+            frame++
+        }
+        captureFrame()
         console.log("Started streaming")
     }
 
