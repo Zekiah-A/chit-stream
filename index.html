@@ -836,13 +836,22 @@
         function captureFrame() {
             const framebuffer = gl.createFramebuffer()
             gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+            
+            // TODO: Find some way to use single FB so ABAB is not needed
+            function createFramebufferTex() {
+                const fbTexture = gl.createTexture()
+                gl.bindTexture(gl.TEXTURE_2D, fbTexture)
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTexture, 0)
+                return fbTexture
+            }
 
-            const fbTexture = gl.createTexture()
-            gl.bindTexture(gl.TEXTURE_2D, fbTexture)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTexture, 0)
+            const fbTexture1 = createFramebufferTex()
+            const fbTexture2 = createFramebufferTex()
+            let currentTexture = fbTexture1
+
 
             if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
                 console.error("Framebuffer is not complete")
@@ -851,34 +860,39 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, null) // unbind
 
             function pipelineStep(effect) {
-                const currentEffect = useEffectShader(effect)
+                const currentEffect = useEffectShader(effect);
 
                 // Hand last frame texture to shader
                 gl.activeTexture(gl.TEXTURE0)
-                gl.bindTexture(gl.TEXTURE_2D, fbTexture)
-                //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, fbTexture)
+                gl.bindTexture(gl.TEXTURE_2D, currentTexture)
                 currentEffect.videoTexture = 0
-                
-                // Let effect do it's per frame operations
+
+                // Let effect do its per frame operations
                 currentEffect.frame()
 
                 // Hand next frame texture
-                //gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
+                    currentTexture === fbTexture1 ? fbTexture2 : fbTexture1, 0)
                 gl.clear(gl.COLOR_BUFFER_BIT)
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                //gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+
+                // Swap textures for the next iteration
+                currentTexture = currentTexture === fbTexture1 ? fbTexture2 : fbTexture1
             }
 
+
             if (pipeline.length != 0) {
-                for (const effect of pipeline){ if (effect) pipelineStep(effect) } // can be holey
+                for (const effect of pipeline) { if (effect) pipelineStep(effect) } // can be holey
             }
             else {
                 pipelineStep(standardEffect)
             }
 
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-            gl.clear(gl.COLOR_BUFFER_BIT)
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+            // Render the final result
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
             /*
             const imageData = new Uint8Array(width * height * 4)
