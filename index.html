@@ -589,6 +589,7 @@
             `
             this._inputTexture = null
             this._opacity = 1.0
+            this.inactive = true
 
             if (!navigator.mediaDevices.getUserMedia) {
                 throw new Error("Error - Media devices not found", e)
@@ -614,6 +615,7 @@
                     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
                     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
                     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                    this.inactive = false
                 })
             }).catch(e => {
                 throw new Error("Error - Failed acquiring video media! " + e)
@@ -646,6 +648,10 @@
             gl.uniform1i(this.inputTextureAttrib, 1)
         }
 
+        destruct() {
+            rawPreviewVideo.srcObject = null
+        }
+
         exposes() {
             return div(
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Transform"),
@@ -671,7 +677,12 @@
                         oninput: (e) => this.opacity = e.target.value})
                 ),
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Source"),
-                select(option({value: "640x480"}, "640x480"))
+                select(
+                    option({value: "320x240"}, "320x240"),
+                    option({value: "640x480"}, "640x480"),
+                    option({value: "1280x720"}, "1280x720"),
+                    option({value: "1920x1080"}, "1920x1080")
+                )
             )
         }
 
@@ -870,7 +881,11 @@
             }
 
             if (pipeline.length != 0) {
-                for (const effect of pipeline){ if (effect) pipelineStep(effect) } // can be holey
+                for (const effect of pipeline) {
+                    if (effect && !effect.inactive) {
+                        pipelineStep(effect) // can be holey
+                    }
+                }
             }
             else {
                 pipelineStep(standardEffect)
