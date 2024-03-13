@@ -23,6 +23,15 @@
             column-gap: 8px;
             align-items: center;
         }
+        .raw-previews {
+            display: flex;
+            flex-direction: column;
+            max-width: 512px;
+            row-gap: 8px;
+        }
+        .raw-previews video {
+            max-width: 512px;
+        }
         .vid-container {
             position: relative;
             border: 1px solid gray;
@@ -113,10 +122,7 @@
 </head>
 <body>
     <div class="stream-views">
-        <div class="vid-container">
-            <video id="rawPreviewVideo" autoplay></video>
-            <div>Raw source video</div>
-        </div>
+        <div id="rawPreviews" class="raw-previews"><!--Raw preview videos will go here--></div>
         <div class="vid-container">
             <canvas id="previewCanvas" autoplay></canvas>
             <div>Stream composite preview</div>
@@ -398,17 +404,17 @@
                 varying vec2 v_texCoord;
 
                 void main() {
-                    vec4 color = texture2D(u_videoTexture, v_texCoord);
+                    vec4 colour = texture2D(u_videoTexture, v_texCoord);
 
                     // Adjust brightness
-                    color.rgb += (u_brightness - 1.0);
+                    colour.rgb += (u_brightness - 1.0);
 
                     // Adjust contrast
-                    color.rgb = (color.rgb - 0.5) * u_contrast + 0.5;
+                    colour.rgb = (colour.rgb - 0.5) * u_contrast + 0.5;
 
                     // Adjust saturation
-                    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                    color.rgb = mix(vec3(gray), color.rgb, u_saturation);
+                    float gray = dot(colour.rgb, vec3(0.299, 0.587, 0.114));
+                    colour.rgb = mix(vec3(gray), colour.rgb, u_saturation);
 
                     // Adjust hue
                     /*float angle = u_hue * 3.14159265359; // Convert hue to radians
@@ -419,13 +425,13 @@
                         1.0 / 3.0 * (1.0 - c) - sqrt(1.0 / 3.0) * s,
                         1.0 / 3.0 * (1.0 - c) + sqrt(1.0 / 3.0) * s
                     );
-                    color.rgb = mat3(
+                    colour.rgb = mat3(
                         rgb.x, rgb.x, rgb.x,
                         rgb.z, rgb.x - 2.0 * rgb.z, rgb.z,
                         rgb.z, rgb.z, rgb.y
-                    ) * color.rgb;*/
+                    ) * colour.rgb;*/
 
-                    gl_FragColor = color;
+                    gl_FragColor = colour;
                 }
             `
             this._brightness = 1.0
@@ -579,11 +585,12 @@
                 uniform sampler2D u_inputTexture;
                 uniform float u_opacity;
                 uniform vec2 u_position;
+                uniform vec2 u_scale;
                 varying vec2 v_texCoord;
 
                 void main()
                 {
-                    vec2 translatedTexCoord = v_texCoord + u_position;
+                    vec2 translatedTexCoord = v_texCoord * u_scale + u_position;
                     float mask = step(0.0, translatedTexCoord.x) * step(translatedTexCoord.x, 1.0) *
                         step(0.0, translatedTexCoord.y) * step(translatedTexCoord.y, 1.0);
 
@@ -597,7 +604,25 @@
             this.inactive = true
             this._flipX = false
             this._flipY = false
-            this._position = { x: 0, y: 0 }
+            this._positionX = 0
+            this._positionY = 0
+            this._scaleX = 1
+            this._scaleY = 1
+
+            const rawPreviewContainer = document.createElement("div")
+            rawPreviewContainer.className = "vid-container"
+            const rawPreviewId = btoa(Math.random()).slice(2)
+            rawPreviewContainer.setAttribute("id", rawPreviewId)
+            const rawPreviewVideo = document.createElement("video")
+            rawPreviewVideo.setAttribute("autoplay", "true")
+            rawPreviewContainer.appendChild(rawPreviewVideo)
+
+            const rawPreviewLabel = document.createElement("div")
+            rawPreviewLabel.textContent = "Raw source video"
+            rawPreviewContainer.appendChild(rawPreviewLabel)
+            rawPreviews.appendChild(rawPreviewContainer)
+            this._rawPreviewVideo = rawPreviewVideo
+            this._rawPreviewId = rawPreviewId
         }
 
         set opacity(value) {
@@ -622,27 +647,68 @@
         get flipY() {
             return this._flipY
         }
+
+        //  Position
         get position() {
-            return this._position
+            return { x: this._positionX, y: this._positionY }
+        }
+        set positionX(value) {
+            if (this.positionAttrib) {
+                this._positionX = value
+                gl.uniform2f(this.positionAttrib, value, this._positionY)
+            }
+        }
+        set positionY(value) {
+            if (this.positionAttrib) {
+                this._positionY = value
+                gl.uniform2f(this.positionAttrib, this._positionX, value)
+            }
         }
         set position(value) {
             if (this.positionAttrib) {
-                this._position = value
+                this._positionX = value.x
+                this._positionY = value.y
                 gl.uniform2f(this.positionAttrib, value.x, value.y)
+            }
+        }
+
+        // Scale
+        get scale() {
+            return { x: this._scaleX, y: this._scaleY }
+        }
+        set scaleX(value) {
+            if (this.scaleAttrib) {
+                this._scaleX = value
+                gl.uniform2f(this.scaleAttrib, value, this._scaleY)
+            }
+        }
+        set scaleY(value) {
+            if (this.scaleAttrib) {
+                this._scaleY = value
+                gl.uniform2f(this.scaleAttrib, this._scaleX, value)
+            }
+        }
+        set scale(value) {
+            if (this.scaleAttrib) {
+                this._scaleX = value.x
+                this._scaleY = value.y
+                gl.uniform2f(this.scaleAttrib, value.x, value.y)
             }
         }
 
         frame() {
             gl.activeTexture(gl.TEXTURE1)
             gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, rawPreviewVideo)
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, this._rawPreviewVideo)
 
             // Fix later
             gl.uniform1i(this.inputTextureAttrib, 1)
         }
 
         destruct() {
-            rawPreviewVideo.srcObject = null
+            this.inactive = true
+            this._rawPreviewVideo.srcObject = null
+            document.getElementById(this._rawPreviewId).remove()
         }
 
         exposes() {
@@ -650,21 +716,23 @@
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Transform"),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "X"),    
-                    input({type: "range", step: "any", min: "-10", max: "10", value: this._position.x,
-                        oninput: (e) => this.position = { x: e.target.value, y: this._position.y }})
+                    input({type: "range", step: "any", min: "-1", max: "1", value: this._positionX,
+                        oninput: (e) => this.positionX = e.target.value})
                 ),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "Y"),
-                    input({type: "range", step: "any", min: "-10", max: "10", value: this._position.y,
-                        oninput: (e) => this.position = { x: this._position.x, y: e.target.value }})
+                    input({type: "range", step: "any", min: "-1", max: "1", value: this._positionY,
+                        oninput: (e) => this.positionY = e.target.value})
                 ),
                 div({style: "display: flex;"},
-                    div({style: "width: 78px;"}, "Width"),    
-                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                    div({style: "width: 78px;"}, "Scale X"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this._scaleX,
+                        oninput: (e) => this.scaleX = e.target.value})
                 ),
                 div({style: "display: flex;"},
-                    div({style: "width: 78px;"}, "Height"),
-                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                    div({style: "width: 78px;"}, "Scale Y"),
+                    input({type: "range", step: "any", min: "0", max: "2", value: this._scaleY,
+                        oninput: (e) => this.scaleY = e.target.value})
                 ),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "Opacity"),
@@ -693,8 +761,11 @@
 
         bindAttribs() {
             super.bindAttribs()
-            this.positionAttrib = gl.getUniformLocation(this.program, "u_position");
-            gl.uniform2f(this.positionAttrib, this._position.x, this._position.y)
+            this.positionAttrib = gl.getUniformLocation(this.program, "u_position")
+            gl.uniform2f(this.positionAttrib, this._positionX, this._positionY)
+
+            this.scaleAttrib = gl.getUniformLocation(this.program, "u_scale")
+            gl.uniform2f(this.scaleAttrib, this._scaleX, this._scaleY)
 
             this.inputTextureAttrib = gl.getUniformLocation(this.program, "u_inputTexture")
             gl.uniform1i(this.inputTextureAttrib, this._inputTexture)
@@ -718,10 +789,10 @@
                 }
 
                 //gl.clear(gl.COLOR_BUFFER_BIT)
-                rawPreviewVideo.srcObject = stream
-                rawPreviewVideo.addEventListener("play", () => {
-                    this._width = rawPreviewVideo.videoWidth
-                    this._height = rawPreviewVideo.videoHeight
+                this._rawPreviewVideo.srcObject = stream
+                this._rawPreviewVideo.addEventListener("play", () => {
+                    this._width = this._rawPreviewVideo.videoWidth
+                    this._height = this._rawPreviewVideo.videoHeight
                     previewCanvas.width = Math.max(this._width, previewCanvas.width)
                     previewCanvas.height = Math.max(this._height, previewCanvas.height)
 
@@ -767,10 +838,10 @@
                 }
 
                 //gl.clear(gl.COLOR_BUFFER_BIT)
-                rawPreviewVideo.srcObject = stream
-                rawPreviewVideo.addEventListener("play", () => {
-                    this._width = rawPreviewVideo.videoWidth
-                    this._height = rawPreviewVideo.videoHeight
+                this._rawPreviewVideo.srcObject = stream
+                this._rawPreviewVideo.addEventListener("play", () => {
+                    this._width = this._rawPreviewVideo.videoWidth
+                    this._height = this._rawPreviewVideo.videoHeight
                     previewCanvas.width = Math.max(this._width, previewCanvas.width)
                     previewCanvas.height = Math.max(this._height, previewCanvas.height)
 
@@ -819,7 +890,11 @@
 
         const EffectOverlayItem = (itemState, deleter, parentContainer) => {
             const effect = itemState.val
-            const deleteThis = function() { effect.destruct(); deleter() }
+            const deleteThis = function() {
+                effect.destruct()
+                pipeline.splice(pipeline.indexOf(effect), 1)
+                deleter()
+            }
             let dragging = false
             let leftOffset = 0
             let topOffset = 0
