@@ -570,7 +570,7 @@
         }
     }
 
-    class CameraInput extends StandardEffect {
+    class CaptureEffect extends StandardEffect {
         constructor() {
             super()
             this.fragment = `
@@ -578,48 +578,26 @@
                 uniform sampler2D u_videoTexture;
                 uniform sampler2D u_inputTexture;
                 uniform float u_opacity;
+                uniform vec2 u_position;
                 varying vec2 v_texCoord;
 
                 void main()
                 {
+                    vec2 translatedTexCoord = v_texCoord + u_position;
+                    float mask = step(0.0, translatedTexCoord.x) * step(translatedTexCoord.x, 1.0) *
+                        step(0.0, translatedTexCoord.y) * step(translatedTexCoord.y, 1.0);
+
                     vec4 behindTex = texture2D(u_videoTexture, v_texCoord);
-                    vec4 inputTex = texture2D(u_inputTexture, v_texCoord);
-                    gl_FragColor = mix(behindTex, inputTex, u_opacity);
+                    vec4 inputTex = texture2D(u_inputTexture, translatedTexCoord);
+                    gl_FragColor = mix(behindTex, inputTex, u_opacity * mask);
                 }
             `
             this._inputTexture = null
             this._opacity = 1.0
             this.inactive = true
-
-            if (!navigator.mediaDevices.getUserMedia) {
-                throw new Error("Error - Media devices not found", e)
-                return
-            }
-            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-                if (stream == null) {
-                    throw new Error("Error - Failed acquiring permissions!", e)
-                    return
-                }
-
-                gl.clear(gl.COLOR_BUFFER_BIT)
-
-                rawPreviewVideo.srcObject = stream
-                rawPreviewVideo.addEventListener("play", () => {
-                    this._width = rawPreviewVideo.videoWidth
-                    this._height = rawPreviewVideo.videoHeight
-                    previewCanvas.width = this._width
-                    previewCanvas.height = this._height
-
-                    this._inputTexture = gl.createTexture()
-                    gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
-                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-                    this.inactive = false
-                })
-            }).catch(e => {
-                throw new Error("Error - Failed acquiring video media! " + e)
-            })
+            this._flipX = false
+            this._flipY = false
+            this._position = { x: 0, y: 0 }
         }
 
         set opacity(value) {
@@ -637,6 +615,21 @@
         }
         get height() {
             return this._height
+        }
+        get flipX() {
+            return this._flipX
+        }
+        get flipY() {
+            return this._flipY
+        }
+        get position() {
+            return this._position
+        }
+        set position(value) {
+            if (this.positionAttrib) {
+                this._position = value
+                gl.uniform2f(this.positionAttrib, value.x, value.y)
+            }
         }
 
         frame() {
@@ -657,11 +650,13 @@
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Transform"),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "X"),    
-                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                    input({type: "range", step: "any", min: "-10", max: "10", value: this._position.x,
+                        oninput: (e) => this.position = { x: e.target.value, y: this._position.y }})
                 ),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "Y"),
-                    input({type: "range", step: "any", min: "-10", max: "10", value: 0})
+                    input({type: "range", step: "any", min: "-10", max: "10", value: this._position.y,
+                        oninput: (e) => this.position = { x: this._position.x, y: e.target.value }})
                 ),
                 div({style: "display: flex;"},
                     div({style: "width: 78px;"}, "Width"),    
@@ -676,6 +671,16 @@
                     input({type: "range", step: "any", min: "0", max: "1", value: this._opacity,
                         oninput: (e) => this.opacity = e.target.value})
                 ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Flip X"),
+                    input({type: "checkbox", value: this._flipX,
+                        /*oninput: (e) => this.flipX = e.target.value*/})
+                ),
+                div({style: "display: flex;"},
+                    div({style: "width: 78px;"}, "Flip Y"),
+                    input({type: "checkbox", value: this._flipY,
+                        /*oninput: (e) => this.flipY = e.target.value*/})
+                ),
                 h4({style: "margin-top: 8px;margin-bottom: 4px;"}, "Source"),
                 select(
                     option({value: "320x240"}, "320x240"),
@@ -688,6 +693,9 @@
 
         bindAttribs() {
             super.bindAttribs()
+            this.positionAttrib = gl.getUniformLocation(this.program, "u_position");
+            gl.uniform2f(this.positionAttrib, this._position.x, this._position.y)
+
             this.inputTextureAttrib = gl.getUniformLocation(this.program, "u_inputTexture")
             gl.uniform1i(this.inputTextureAttrib, this._inputTexture)
 
@@ -696,7 +704,88 @@
         }
     }
 
-    class ScreenInput extends StandardEffect { constructor() { super() } }
+    class CameraInput extends CaptureEffect {
+        constructor() {
+            super()
+            if (!navigator.mediaDevices.getUserMedia) {
+                throw new Error("Error - Media devices not found", e)
+                return
+            }
+            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+                if (stream == null) {
+                    throw new Error("Error - Failed acquiring permissions!", e)
+                    return
+                }
+
+                //gl.clear(gl.COLOR_BUFFER_BIT)
+                rawPreviewVideo.srcObject = stream
+                rawPreviewVideo.addEventListener("play", () => {
+                    this._width = rawPreviewVideo.videoWidth
+                    this._height = rawPreviewVideo.videoHeight
+                    previewCanvas.width = Math.max(this._width, previewCanvas.width)
+                    previewCanvas.height = Math.max(this._height, previewCanvas.height)
+
+                    this._inputTexture = gl.createTexture()
+                    gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                    this.inactive = false
+                })
+            }).catch(e => {
+                throw new Error("Error - Failed acquiring video media! " + e)
+            })
+        }
+    }
+
+    class ScreenInput extends CaptureEffect {
+        constructor() {
+            super()
+            if (!navigator.mediaDevices.getDisplayMedia) {
+                throw new Error("Error - Media devices not found", e)
+                return
+            }
+            this.displayMediaOptions = {
+                video: {
+                    displaySurface: "browser",
+                },
+                audio: {
+                    suppressLocalAudioPlayback: false,
+                },
+                preferCurrentTab: false,
+                selfBrowserSurface: "exclude",
+                systemAudio: "include",
+                surfaceSwitching: "include",
+                monitorTypeSurfaces: "include",
+            }
+            navigator.mediaDevices.getDisplayMedia(this.displayMediaOptions).then((stream) => {
+                if (stream == null) {
+                    throw new Error("Error - Failed acquiring permissions!", e)
+                    return
+                }
+
+                //gl.clear(gl.COLOR_BUFFER_BIT)
+                rawPreviewVideo.srcObject = stream
+                rawPreviewVideo.addEventListener("play", () => {
+                    this._width = rawPreviewVideo.videoWidth
+                    this._height = rawPreviewVideo.videoHeight
+                    previewCanvas.width = Math.max(this._width, previewCanvas.width)
+                    previewCanvas.height = Math.max(this._height, previewCanvas.height)
+
+                    this._inputTexture = gl.createTexture()
+                    gl.bindTexture(gl.TEXTURE_2D, this._inputTexture)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                    this.inactive = false
+                })
+            }).catch(e => {
+                throw new Error("Error - Failed acquiring video media! " + e)
+            })
+        }
+    }
 
     const standardEffect = new StandardEffect()
     const inputShaders = {
@@ -765,6 +854,15 @@
                 dragging = false
             }
 
+            const thisItemHeader = div({style: "display: flex;height: 20px;"},
+                h4({class:"dropdown-title"}, effect.constructor.name),
+                dragRegion,
+                div({style:"cursor:pointer;",
+                    onclick: () => deleteThis(),
+                    innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20">
+                        <path fill="white" d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
+                    </svg>`}),
+            )
             const thisItem = div({
                     class: "pipeline-item",
                     onmousemove: e => {
@@ -774,18 +872,20 @@
                         thisItem.style.top = (e.clientY - containerPos.top - topOffset) + "px"
                     },
                     onmouseleave: resetDrag,
-                    onmouseup: resetDrag
+                    onmouseup: resetDrag,
+                    onscroll: e => {
+                        if (e.target.scrollTop != 0) {
+                            thisItemHeader.style.backdropFilter = "blur(8px)"
+                            thisItemHeader.style.boxShadow = "#4f46464f 0px 4px 8px"
+                        }
+                        else {
+                            thisItemHeader.style.backdropFilter = "none"
+                            thisHeader.style.boxShadow = "none"
+                        }
+                    }
                 },
-                div({style: "display: flex;height: 20px;"},
-                    h4({class:"dropdown-title"}, effect.constructor.name),
-                    dragRegion,
-                    div({style:"cursor:pointer;",
-                        onclick: () => deleteThis(),
-                        innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20">
-                            <path fill="white" d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
-                        </svg>`}),
-                ),
-                div({style: "margin-top: 16px;margin-left: 8px;margin-right: 8px;"}, effect.exposes())
+                thisItemHeader,
+                div({style: "margin-top: 16px;margin-left: 8px;margin-right: 8px;overflow-y: auto;max-height: calc(100% - 28px);"}, effect.exposes())
             )
             return thisItem
         }
@@ -847,13 +947,22 @@
         function captureFrame() {
             const framebuffer = gl.createFramebuffer()
             gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+            
+            // TODO: Find some way to use single FB so ABAB is not needed
+            function createFramebufferTex() {
+                const fbTexture = gl.createTexture()
+                gl.bindTexture(gl.TEXTURE_2D, fbTexture)
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTexture, 0)
+                return fbTexture
+            }
 
-            const fbTexture = gl.createTexture()
-            gl.bindTexture(gl.TEXTURE_2D, fbTexture)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTexture, 0)
+            const fbTexture1 = createFramebufferTex()
+            const fbTexture2 = createFramebufferTex()
+            let currentTexture = fbTexture1
+
 
             if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
                 console.error("Framebuffer is not complete")
@@ -862,23 +971,27 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, null) // unbind
 
             function pipelineStep(effect) {
-                const currentEffect = useEffectShader(effect)
+                const currentEffect = useEffectShader(effect);
 
                 // Hand last frame texture to shader
                 gl.activeTexture(gl.TEXTURE0)
-                gl.bindTexture(gl.TEXTURE_2D, fbTexture)
-                //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, fbTexture)
+                gl.bindTexture(gl.TEXTURE_2D, currentTexture)
                 currentEffect.videoTexture = 0
-                
-                // Let effect do it's per frame operations
+
+                // Let effect do its per frame operations
                 currentEffect.frame()
 
                 // Hand next frame texture
-                //gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
+                    currentTexture === fbTexture1 ? fbTexture2 : fbTexture1, 0)
                 gl.clear(gl.COLOR_BUFFER_BIT)
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                //gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+
+                // Swap textures for the next iteration
+                currentTexture = currentTexture === fbTexture1 ? fbTexture2 : fbTexture1
             }
+
 
             if (pipeline.length != 0) {
                 for (const effect of pipeline) {
@@ -891,9 +1004,10 @@
                 pipelineStep(standardEffect)
             }
 
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-            gl.clear(gl.COLOR_BUFFER_BIT)
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+            // Render the final result
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
             /*
             const imageData = new Uint8Array(width * height * 4)
@@ -903,6 +1017,11 @@
             packet.set(binaryData, 1)
             ws.send(packet)
             */
+            // Free resources
+            gl.deleteTexture(fbTexture1)
+            gl.deleteTexture(fbTexture2)
+            gl.deleteFramebuffer(framebuffer)
+            // Proceed
             requestAnimationFrame(captureFrame)
             frame++
         }
